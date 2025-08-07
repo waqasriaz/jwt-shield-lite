@@ -45,13 +45,31 @@ class Jwt_Shield_Lite_Auth {
      * @return array|WP_Error
      */
     public function generate_token($request) {
-        $username = $request['username'] ?? '';
-        $password = $request['password'] ?? '';
-
+        // Sanitize and validate inputs
+        $username = isset($request['username']) ? sanitize_user($request['username']) : '';
+        $password = isset($request['password']) ? $request['password'] : ''; // Don't sanitize passwords
+        
+        // Additional validation
         if (empty($username) || empty($password)) {
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_empty_credentials',
                 'Username and password are required.'
+            );
+        }
+        
+        // Check for reasonable username length (prevent DoS)
+        if (strlen($username) > 60) {
+            return Jwt_Shield_Lite_Helpers::create_error(
+                'jwt_auth_invalid_credentials',
+                'Invalid username or password.'
+            );
+        }
+        
+        // Check for reasonable password length (prevent DoS)
+        if (strlen($password) > 4096) {
+            return Jwt_Shield_Lite_Helpers::create_error(
+                'jwt_auth_invalid_credentials',
+                'Invalid username or password.'
             );
         }
 
@@ -101,22 +119,38 @@ class Jwt_Shield_Lite_Auth {
             // Store token in database
             $this->store_token($user->ID, $jwt, $expire);
 
+            // Prepare success message
+            $message = sprintf(
+                __('Token expires in %s.', 'jwt-shield-lite'),
+                human_time_diff(time(), $expire)
+            );
+            
+            // Add Pro advertising if enabled
+            if (Jwt_Shield_Lite_Helpers::pro_ads_enabled()) {
+                $message = sprintf(
+                    __('Token expires in %s. Upgrade to Pro for refresh tokens and advanced features!', 'jwt-shield-lite'),
+                    human_time_diff(time(), $expire)
+                );
+            }
+
             return array(
                 'token' => $jwt,
                 'user_email' => $user->user_email,
                 'user_nicename' => $user->user_nicename,
                 'user_display_name' => $user->display_name,
                 'exp' => $expire,
-                'message' => sprintf(
-                    __('Token expires in %s. Upgrade to Pro for refresh tokens and advanced features!', 'jwt-shield-lite'),
-                    human_time_diff(time(), $expire)
-                )
+                'message' => $message
             );
 
         } catch (Exception $e) {
+            // Log the detailed error for administrators
+            if (current_user_can('manage_options')) {
+                error_log('JWT Shield Lite - Token generation error: ' . $e->getMessage());
+            }
+            
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_error',
-                $e->getMessage()
+                'Token generation failed. Please check your configuration.'
             );
         }
     }
@@ -159,9 +193,29 @@ class Jwt_Shield_Lite_Auth {
         try {
             $decoded = JWT::decode($token, new Key($secret_key, $algorithm));
 
-            // Validate issuer
-            if ($decoded->iss !== get_bloginfo('url')) {
+            // Validate issuer using constant-time comparison
+            $expected_issuer = get_bloginfo('url');
+            if (!Jwt_Shield_Lite_Helpers::hash_equals_safe($expected_issuer, $decoded->iss)) {
                 return Jwt_Shield_Lite_Helpers::create_error('jwt_auth_bad_token');
+            }
+
+            // Verify user still exists and is active
+            $user = get_user_by('id', $decoded->data->user->id);
+            if (!$user || !user_can($user, 'read')) {
+                return Jwt_Shield_Lite_Helpers::create_error(
+                    'jwt_auth_user_not_found',
+                    'User account is no longer valid.'
+                );
+            }
+
+            // Check if user account is still active (not spam/deleted)
+            if (is_multisite()) {
+                if (is_user_spammy($user) || !is_user_member_of_blog($user->ID)) {
+                    return Jwt_Shield_Lite_Helpers::create_error(
+                        'jwt_auth_user_not_found',
+                        'User account is no longer valid.'
+                    );
+                }
             }
 
             // Update last used
@@ -176,9 +230,14 @@ class Jwt_Shield_Lite_Auth {
             );
 
         } catch (Exception $e) {
+            // Log the detailed error for administrators
+            if (current_user_can('manage_options')) {
+                error_log('JWT Shield Lite - Token validation error: ' . $e->getMessage());
+            }
+            
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_invalid_token',
-                $e->getMessage()
+                'Invalid or expired token.'
             );
         }
     }

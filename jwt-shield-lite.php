@@ -28,6 +28,7 @@ if (!defined('WPINC')) {
 define('JWT_SHIELD_LITE_VERSION', '1.0.0');
 define('JWT_SHIELD_LITE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('JWT_SHIELD_LITE_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('JWT_SHIELD_LITE_DISABLE_PRO_ADS', true);
 
 // Load Composer autoloader if exists
 if (file_exists(JWT_SHIELD_LITE_PLUGIN_DIR . 'vendor/autoload.php')) {

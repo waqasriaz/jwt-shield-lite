@@ -181,7 +181,9 @@ fetch('https://your-site.com/wp-json/jwt-shield-lite/v1/token', {
                 <li>And much more!</li>
             </ul>
             
+            <?php if (Jwt_Shield_Lite_Helpers::pro_ads_enabled()): ?>
             <p><a href="<?php echo admin_url('admin.php?page=jwt-shield-lite-upgrade'); ?>" class="button button-primary">Upgrade to Pro</a></p>
+            <?php endif; ?>
         </div>
         
         <div class="jwt-shield-lite-sidebar">

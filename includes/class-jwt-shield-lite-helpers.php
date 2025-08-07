@@ -47,27 +47,88 @@ class Jwt_Shield_Lite_Helpers {
     }
 
     /**
-     * Get client IP address
+     * Get client IP address with proper validation and security checks
      *
      * @return string
      */
     public static function get_client_ip() {
-        $ip_keys = array('HTTP_CF_CONNECTING_IP', 'HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR');
+        // Prioritize headers in order of trust
+        $ip_keys = array(
+            'HTTP_CF_CONNECTING_IP',    // Cloudflare (most trusted proxy)
+            'HTTP_X_REAL_IP',           // Nginx proxy
+            'HTTP_X_FORWARDED_FOR',     // Load balancers/proxies
+            'HTTP_CLIENT_IP',           // Proxy servers
+            'REMOTE_ADDR'               // Direct connection (most reliable)
+        );
         
         foreach ($ip_keys as $key) {
-            if (array_key_exists($key, $_SERVER) === true) {
-                foreach (explode(',', $_SERVER[$key]) as $ip) {
+            if (!empty($_SERVER[$key])) {
+                // Handle comma-separated IP lists
+                $ips = explode(',', $_SERVER[$key]);
+                
+                foreach ($ips as $ip) {
                     $ip = trim($ip);
                     
-                    if (filter_var($ip, FILTER_VALIDATE_IP, 
-                        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
-                        return $ip;
+                    // Validate IP format
+                    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                        continue;
                     }
+                    
+                    // Skip private and reserved ranges for external headers
+                    if ($key !== 'REMOTE_ADDR') {
+                        if (filter_var($ip, FILTER_VALIDATE_IP, 
+                            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                            continue;
+                        }
+                    }
+                    
+                    // Additional security: check for suspicious patterns
+                    if (self::is_suspicious_ip($ip)) {
+                        continue;
+                    }
+                    
+                    return $ip;
                 }
             }
         }
         
-        return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+        // Fallback with validation
+        $remote_addr = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        return filter_var($remote_addr, FILTER_VALIDATE_IP) ? $remote_addr : '0.0.0.0';
+    }
+
+    /**
+     * Check if an IP address is suspicious
+     *
+     * @param string $ip The IP address to check
+     * @return bool True if suspicious, false otherwise
+     */
+    private static function is_suspicious_ip($ip) {
+        // Check for obviously fake IPs
+        $suspicious_patterns = array(
+            '127.0.0.1',        // Localhost
+            '0.0.0.0',          // Invalid
+            '255.255.255.255',  // Broadcast
+        );
+        
+        if (in_array($ip, $suspicious_patterns)) {
+            return true;
+        }
+        
+        // Check for private ranges that shouldn't be in forwarded headers
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $long_ip = ip2long($ip);
+            if ($long_ip !== false) {
+                // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if (($long_ip >= ip2long('10.0.0.0') && $long_ip <= ip2long('10.255.255.255')) ||
+                    ($long_ip >= ip2long('172.16.0.0') && $long_ip <= ip2long('172.31.255.255')) ||
+                    ($long_ip >= ip2long('192.168.0.0') && $long_ip <= ip2long('192.168.255.255'))) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
     }
 
     /**
@@ -120,18 +181,61 @@ class Jwt_Shield_Lite_Helpers {
             'jwt_auth_user_not_found' => __('User not found.', 'jwt-shield-lite'),
             'jwt_auth_invalid_credentials' => __('Invalid username or password.', 'jwt-shield-lite'),
             'jwt_auth_error' => __('Authentication error.', 'jwt-shield-lite'),
+            'jwt_auth_rate_limited' => __('Too many authentication attempts. Please try again later.', 'jwt-shield-lite'),
         );
 
         return isset($messages[$code]) ? $messages[$code] : __('Unknown error.', 'jwt-shield-lite');
     }
 
     /**
-     * Hash a token for storage
+     * Hash a token for storage using WordPress's secure hash function
      *
      * @param string $token
      * @return string
      */
     public static function hash_token($token) {
-        return hash('sha256', $token);
+        // Use WordPress's wp_hash() which includes salts and is more secure
+        return wp_hash($token);
+    }
+
+    /**
+     * Constant-time string comparison to prevent timing attacks
+     *
+     * @param string $known The known string
+     * @param string $user The user-provided string
+     * @return bool True if strings match, false otherwise
+     */
+    public static function hash_equals_safe($known, $user) {
+        // Use PHP's hash_equals if available (PHP 5.6+)
+        if (function_exists('hash_equals')) {
+            return hash_equals($known, $user);
+        }
+        
+        // Fallback implementation for older PHP versions
+        if (strlen($known) !== strlen($user)) {
+            return false;
+        }
+        
+        $result = 0;
+        for ($i = 0; $i < strlen($known); $i++) {
+            $result |= ord($known[$i]) ^ ord($user[$i]);
+        }
+        
+        return $result === 0;
+    }
+
+    /**
+     * Check if Pro advertising should be shown
+     * 
+     * @return bool True if Pro ads should be shown, false otherwise
+     */
+    public static function pro_ads_enabled() {
+        // Check if Pro advertising is explicitly disabled
+        if (defined('JWT_SHIELD_LITE_DISABLE_PRO_ADS') && JWT_SHIELD_LITE_DISABLE_PRO_ADS === true) {
+            return false;
+        }
+        
+        // Default: show Pro advertising
+        return true;
     }
 } 

@@ -95,6 +95,10 @@ class Jwt_Shield_Lite {
         $this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
         $this->loader->add_action('admin_menu', $plugin_admin, 'add_plugin_admin_menu');
         $this->loader->add_action('admin_init', $plugin_admin, 'register_settings');
+        
+        // AJAX handlers
+        $this->loader->add_action('wp_ajax_jwt_shield_lite_generate_key', $plugin_admin, 'ajax_generate_secret_key');
+        $this->loader->add_action('wp_ajax_jwt_shield_lite_dismiss_upgrade', $plugin_admin, 'ajax_dismiss_upgrade_notice');
     }
 
     /**

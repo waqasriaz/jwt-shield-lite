@@ -17,4 +17,8 @@ Thumbs.db
 
 # Build files
 node_modules/
-.npm/ 
+.npm/
+
+# Documentation files
+CLAUDE.md
+JWT_SHIELD_LITE_SUMMARY.md 
