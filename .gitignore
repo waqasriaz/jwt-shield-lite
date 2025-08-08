@@ -1,5 +1,6 @@
 # Composer
-/vendor/
+# Note: vendor/ is included in the repository for easy plugin distribution
+# Users can download and use the plugin without running composer
 composer.lock
 
 # IDE
