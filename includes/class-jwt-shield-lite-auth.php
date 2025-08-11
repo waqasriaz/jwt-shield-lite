@@ -24,7 +24,7 @@ class Jwt_Shield_Lite_Auth {
      *
      * @var WP_Error|null
      */
-    private $jwt_error = null;
+    private $jwt_shield_error = null;
 
     /**
      * Main instance
@@ -100,7 +100,7 @@ class Jwt_Shield_Lite_Auth {
         $expire = $issued_at + $expiration;
 
         $token_data = array(
-            'iss' => get_bloginfo('url'),
+            'iss' => site_url(),
             'iat' => $issued_at,
             'nbf' => $issued_at,
             'exp' => $expire,
@@ -143,11 +143,6 @@ class Jwt_Shield_Lite_Auth {
             );
 
         } catch (Exception $e) {
-            // Log the detailed error for administrators
-            if (current_user_can('manage_options')) {
-                error_log('JWT Shield Lite - Token generation error: ' . $e->getMessage());
-            }
-            
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_error',
                 'Token generation failed. Please check your configuration.'
@@ -173,7 +168,20 @@ class Jwt_Shield_Lite_Auth {
             return Jwt_Shield_Lite_Helpers::create_error('jwt_auth_bad_auth_header');
         }
 
-        return $this->validate_token_internal($token);
+        $decoded = $this->validate_token_internal($token);
+        
+        if (is_wp_error($decoded)) {
+            return $decoded;
+        }
+        
+        // Format the response for the REST API
+        return array(
+            'code' => 'jwt_auth_valid_token',
+            'data' => array(
+                'status' => 200,
+                'user_id' => $decoded->data->user->id
+            )
+        );
     }
 
     /**
@@ -194,47 +202,23 @@ class Jwt_Shield_Lite_Auth {
             $decoded = JWT::decode($token, new Key($secret_key, $algorithm));
 
             // Validate issuer using constant-time comparison
-            $expected_issuer = get_bloginfo('url');
+            $expected_issuer = site_url();
             if (!Jwt_Shield_Lite_Helpers::hash_equals_safe($expected_issuer, $decoded->iss)) {
                 return Jwt_Shield_Lite_Helpers::create_error('jwt_auth_bad_token');
             }
 
-            // Verify user still exists and is active
-            $user = get_user_by('id', $decoded->data->user->id);
-            if (!$user || !user_can($user, 'read')) {
-                return Jwt_Shield_Lite_Helpers::create_error(
-                    'jwt_auth_user_not_found',
-                    'User account is no longer valid.'
-                );
-            }
-
-            // Check if user account is still active (not spam/deleted)
-            if (is_multisite()) {
-                if (is_user_spammy($user) || !is_user_member_of_blog($user->ID)) {
-                    return Jwt_Shield_Lite_Helpers::create_error(
-                        'jwt_auth_user_not_found',
-                        'User account is no longer valid.'
-                    );
-                }
+            // Validate user ID exists in token
+            if (!isset($decoded->data->user->id)) {
+                return Jwt_Shield_Lite_Helpers::create_error('jwt_auth_bad_token');
             }
 
             // Update last used
             $this->update_token_last_used($decoded->data->user->id);
 
-            return array(
-                'code' => 'jwt_auth_valid_token',
-                'data' => array(
-                    'status' => 200,
-                    'user_id' => $decoded->data->user->id
-                )
-            );
+            // Return the decoded token object directly for internal use
+            return $decoded;
 
         } catch (Exception $e) {
-            // Log the detailed error for administrators
-            if (current_user_can('manage_options')) {
-                error_log('JWT Shield Lite - Token validation error: ' . $e->getMessage());
-            }
-            
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_invalid_token',
                 'Invalid or expired token.'
@@ -249,6 +233,11 @@ class Jwt_Shield_Lite_Auth {
      * @return int|bool
      */
     public function authenticate_user($user_id) {
+        // Safety check: Never process or return WP_Error objects
+        if (is_wp_error($user_id)) {
+            return 0;
+        }
+        
         // Skip if not REST request or user already authenticated
         if (!Jwt_Shield_Lite_Helpers::is_rest_request() || $user_id) {
             return $user_id;
@@ -264,6 +253,11 @@ class Jwt_Shield_Lite_Auth {
             return $user_id;
         }
 
+        // Check if the authorization header starts with 'Bearer'
+        if (strpos($auth_header, 'Bearer') !== 0) {
+            return $user_id;
+        }
+
         $token = Jwt_Shield_Lite_Helpers::get_token_from_header($auth_header);
         if (!$token) {
             return $user_id;
@@ -272,25 +266,38 @@ class Jwt_Shield_Lite_Auth {
         $decoded = $this->validate_token_internal($token);
 
         if (is_wp_error($decoded)) {
-            $this->jwt_error = $decoded;
+            if ($decoded->get_error_code() != 'jwt_auth_no_auth_header') {
+                /** If there is an error, store it to show it after see rest_pre_dispatch */
+                $this->jwt_shield_error = $decoded;
+            }
             return $user_id;
         }
 
-        // Return user ID from token
-        return $decoded['data']['user_id'];
+        // Return user ID from token (decoded is now an object)
+        return $decoded->data->user->id;
     }
 
     /**
-     * Handle REST pre-dispatch to show JWT errors
+     * Display JWT validation errors
      *
      * @param mixed $result
      * @param WP_REST_Server $server
      * @param WP_REST_Request $request
-     * @return mixed
+     * @return mixed|WP_REST_Response
      */
-    public function rest_pre_dispatch($result, $server, $request) {
-        if (is_wp_error($this->jwt_error)) {
-            return $this->jwt_error;
+    public function show_jwt_error($result, $server, $request) {
+        if (is_wp_error($this->jwt_shield_error)) {
+            $error_data = $this->jwt_shield_error->get_error_data();
+            $status = isset($error_data['status']) ? $error_data['status'] : 401;
+            
+            return new WP_REST_Response([
+                'success'    => false,
+                'code'       => $this->jwt_shield_error->get_error_code(),
+                'message'    => $this->jwt_shield_error->get_error_message(),
+                'data'       => [
+                    'status' => $status
+                ]
+            ], $status);
         }
         return $result;
     }

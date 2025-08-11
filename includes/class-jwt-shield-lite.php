@@ -126,7 +126,7 @@ class Jwt_Shield_Lite {
         
         // Authentication hooks
         $this->loader->add_filter('determine_current_user', $auth, 'authenticate_user');
-        $this->loader->add_filter('rest_pre_dispatch', $auth, 'rest_pre_dispatch', 10, 3);
+        $this->loader->add_filter('rest_pre_dispatch', $auth, 'show_jwt_error', 10, 3);
     }
 
     /**
