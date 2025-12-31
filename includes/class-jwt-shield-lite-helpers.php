@@ -40,7 +40,8 @@ class Jwt_Shield_Lite_Helpers {
      * @return string|false
      */
     public static function get_token_from_header($auth_header) {
-        if (preg_match('/Bearer\s+(.+)/', $auth_header, $matches)) {
+        // Match Bearer token, stopping at whitespace to prevent capturing extra data
+        if (preg_match('/Bearer\s+([^\s]+)/', $auth_header, $matches)) {
             return $matches[1];
         }
         return false;
@@ -173,15 +174,17 @@ class Jwt_Shield_Lite_Helpers {
      */
     private static function get_error_message($code) {
         $messages = array(
-            'jwt_auth_no_auth_header' => __('Authorization header not found.', 'jwt-shield-lite'),
-            'jwt_auth_bad_auth_header' => __('Authorization header malformed.', 'jwt-shield-lite'),
-            'jwt_auth_bad_token' => __('Invalid token.', 'jwt-shield-lite'),
-            'jwt_auth_expired_token' => __('Token has expired.', 'jwt-shield-lite'),
-            'jwt_auth_invalid_token' => __('Token signature verification failed.', 'jwt-shield-lite'),
-            'jwt_auth_user_not_found' => __('User not found.', 'jwt-shield-lite'),
+            'jwt_auth_no_auth_header'     => __('Authorization header not found.', 'jwt-shield-lite'),
+            'jwt_auth_bad_auth_header'    => __('Authorization header malformed.', 'jwt-shield-lite'),
+            'jwt_auth_bad_token'          => __('Invalid token.', 'jwt-shield-lite'),
+            'jwt_auth_expired_token'      => __('Token has expired.', 'jwt-shield-lite'),
+            'jwt_auth_invalid_token'      => __('Token signature verification failed.', 'jwt-shield-lite'),
+            'jwt_auth_user_not_found'     => __('User not found.', 'jwt-shield-lite'),
             'jwt_auth_invalid_credentials' => __('Invalid username or password.', 'jwt-shield-lite'),
-            'jwt_auth_error' => __('Authentication error.', 'jwt-shield-lite'),
-            'jwt_auth_rate_limited' => __('Too many authentication attempts. Please try again later.', 'jwt-shield-lite'),
+            'jwt_auth_empty_credentials'  => __('Username and password are required.', 'jwt-shield-lite'),
+            'jwt_auth_bad_config'         => __('JWT is not configured properly.', 'jwt-shield-lite'),
+            'jwt_auth_error'              => __('Authentication error.', 'jwt-shield-lite'),
+            'jwt_auth_rate_limited'       => __('Too many authentication attempts. Please try again later.', 'jwt-shield-lite'),
         );
 
         return isset($messages[$code]) ? $messages[$code] : __('Unknown error.', 'jwt-shield-lite');

@@ -119,33 +119,33 @@ class Jwt_Shield_Lite_Auth {
             // Store token in database
             $this->store_token($user->ID, $jwt, $expire);
 
-            // Prepare success message
-            $message = sprintf(
-                __('Token expires in %s.', 'jwt-shield-lite'),
-                human_time_diff(time(), $expire)
+            // Build response
+            $response = array(
+                'success' => true,
+                'data'    => array(
+                    'token'             => $jwt,
+                    'user_id'           => $user->ID,
+                    'user_email'        => $user->user_email,
+                    'user_nicename'     => $user->user_nicename,
+                    'user_display_name' => $user->display_name,
+                    'expires_at'        => $expire,
+                ),
             );
-            
-            // Add Pro advertising if enabled
+
+            // Add Pro notice separately (not mixed with data)
             if (Jwt_Shield_Lite_Helpers::pro_ads_enabled()) {
-                $message = sprintf(
+                $response['notice'] = sprintf(
                     __('Token expires in %s. Upgrade to Pro for refresh tokens and advanced features!', 'jwt-shield-lite'),
                     human_time_diff(time(), $expire)
                 );
             }
 
-            return array(
-                'token' => $jwt,
-                'user_email' => $user->user_email,
-                'user_nicename' => $user->user_nicename,
-                'user_display_name' => $user->display_name,
-                'exp' => $expire,
-                'message' => $message
-            );
+            return $response;
 
         } catch (Exception $e) {
             return Jwt_Shield_Lite_Helpers::create_error(
                 'jwt_auth_error',
-                'Token generation failed. Please check your configuration.'
+                __('Token generation failed. Please check your configuration.', 'jwt-shield-lite')
             );
         }
     }
@@ -169,18 +169,19 @@ class Jwt_Shield_Lite_Auth {
         }
 
         $decoded = $this->validate_token_internal($token);
-        
+
         if (is_wp_error($decoded)) {
             return $decoded;
         }
-        
-        // Format the response for the REST API
+
+        // Format the response for the REST API (consistent with token endpoint)
         return array(
-            'code' => 'jwt_auth_valid_token',
-            'data' => array(
-                'status' => 200,
-                'user_id' => $decoded->data->user->id
-            )
+            'success' => true,
+            'data'    => array(
+                'user_id' => $decoded->data->user->id,
+                'email'   => $decoded->data->user->email,
+                'roles'   => $decoded->data->user->roles,
+            ),
         );
     }
 
